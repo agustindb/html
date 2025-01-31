@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cortar Polígonos sin Perder Datos</title>
+    <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css">
+    <script src="https://js.arcgis.com/4.26/"></script>
+</head>
+<body>
+    <div id="viewDiv" style="width: 100%; height: 100vh;"></div>
+
+    <script>
+        require([
+            "esri/Map",
+            "esri/views/MapView",
+            "esri/layers/FeatureLayer",
+            "esri/layers/GraphicsLayer",
+            "esri/geometry/geometryEngine",
+            "esri/widgets/Sketch",
+            "esri/widgets/Expand",
+            "esri/Graphic"
+        ], function(Map, MapView, FeatureLayer, GraphicsLayer, geometryEngine, Sketch, Expand, Graphic) {
+
+            // 🔹 1. Cargar la capa de polígonos desde ArcGIS Online
+            const featureLayer = new FeatureLayer({
+                url: "https://services3.arcgis.com/WkfWDzS3oB5Z88Lw/arcgis/rest/services/Catastro_CORTEVA_Argentina/FeatureServer/0",
+                outFields: ["*"], // Obtener todos los atributos
+                editable: true
+            });
+
+            // 🔹 2. Crear el mapa y la vista
+            const map = new Map({
+                basemap: "streets-navigation-vector",
+                layers: [featureLayer]
+            });
+
+            const view = new MapView({
+                container: "viewDiv",
+                map: map,
+                center: [-58, -34], // Argentina
+                zoom: 6
+            });
+
+            // 🔹 3. Capa temporal para almacenar líneas de corte
+            const graphicsLayer = new GraphicsLayer();
+            map.add(graphicsLayer);
+
+            // 🔹 4. Variables globales
+            let selectedPolygon = null;
+            let selectedGraphic = null;
+            let objectId = null;
+            let originalAttributes = {};
+
+            // 🔹 5. Evento para seleccionar un polígono
+            view.on("click", function(event) {
+                view.hitTest(event).then(function(response) {
+                    const graphic = response.results.find(result => result.graphic.layer === featureLayer);
+                    
+                    if (graphic && graphic.graphic.geometry) {
+                        selectedPolygon = graphic.graphic.geometry;
+                        selectedGraphic = graphic.graphic;
+                        objectId = graphic.graphic.attributes.OBJECTID;
+                        originalAttributes = { ...graphic.graphic.attributes }; // Guardar los atributos originales
+                        delete originalAttributes.OBJECTID; // No copiar el OBJECTID
+                        
+                        console.log("✅ Polígono seleccionado:", selectedPolygon);
+                        console.log("📄 Atributos guardados:", originalAttributes);
+
+                        // Resaltar el polígono seleccionado
+                        graphicsLayer.removeAll();
+                        selectedGraphic.symbol = {
+                            type: "simple-fill",
+                            color: [255, 255, 0, 0.4], // Amarillo transparente
+                            outline: { color: [255, 0, 0], width: 2 }
+                        };
+                        graphicsLayer.add(selectedGraphic);
+                    } else {
+                        console.log("⚠️ No se seleccionó un polígono válido.");
+                    }
+                });
+            });
+
+            // 🔹 6. Agregar herramienta para dibujar líneas de corte
+            const sketch = new Sketch({
+                view: view,
+                layer: graphicsLayer, // Usar GraphicsLayer, NO FeatureLayer
+                availableCreateTools: ["polyline"]
+            });
+
+            const expandSketch = new Expand({
+                view: view,
+                content: sketch,
+                expandIconClass: "esri-icon-edit",
+                expanded: false
+            });
+
+            view.ui.add(expandSketch, "top-left");
+
+            // 🔹 7. Evento cuando se dibuja una línea de corte
+            sketch.on("create", function(event) {
+                if (event.state === "complete" && selectedPolygon) {
+                    const cuttingLine = event.graphic.geometry;
+                    console.log("✂️ Línea de corte:", cuttingLine);
+
+                    // 🔹 8. Intentar cortar el polígono
+                    const cutGeometries = geometryEngine.cut(selectedPolygon, cuttingLine);
+
+                    if (cutGeometries && cutGeometries.length > 0) {
+                        console.log("✅ Resultado del corte:", cutGeometries);
+
+                        // 🔹 9. Crear gráficos con los polígonos resultantes
+                        graphicsLayer.removeAll();
+                        let newFeatures = [];
+                        cutGeometries.forEach(geometry => {
+                            const newGraphic = new Graphic({
+                                geometry: geometry,
+                                attributes: { ...originalAttributes }, // Copiar atributos originales
+                                symbol: {
+                                    type: "simple-fill",
+                                    color: [0, 255, 0, 0.5], // Verde semitransparente
+                                    outline: { color: [255, 255, 255], width: 1 }
+                                }
+                            });
+                            graphicsLayer.add(newGraphic);
+                            newFeatures.push({
+                                attributes: { ...originalAttributes }, // Copiar los atributos
+                                geometry: geometry
+                            });
+                        });
+
+                        // 🔹 10. Guardar los nuevos polígonos en la capa
+                        featureLayer.applyEdits({
+                            deleteFeatures: [{ objectId: objectId }], // Borrar el polígono original
+                            addFeatures: newFeatures // Agregar los nuevos polígonos con atributos copiados
+                        }).then((response) => {
+                            console.log("✅ Edición guardada en la capa:", response);
+                            graphicsLayer.removeAll();
+                        }).catch(err => {
+                            console.error("❌ Error al guardar los cambios:", err);
+                        });
+
+                        // 🔹 11. Eliminar la línea de corte después de aplicar la edición
+                        graphicsLayer.remove(event.graphic);
+                    } else {
+                        console.log("⚠️ El corte no generó nuevas geometrías.");
+                    }
+                }
+            });
+
+        });
+    </script>
+</body>
+</html>
