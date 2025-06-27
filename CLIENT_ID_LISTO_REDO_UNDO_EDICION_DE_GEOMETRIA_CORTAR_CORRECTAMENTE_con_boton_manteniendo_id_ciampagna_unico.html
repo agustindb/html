@@ -23,7 +23,6 @@
     #cortarBtn { top: 170px; }
     #undoBtn   { top: 220px; }
     #redoBtn   { top: 270px; }
-
     #toast {
       position: fixed;
       bottom: 30px;
@@ -52,6 +51,8 @@
 
   <script>
     require([
+      "esri/identity/OAuthInfo",
+      "esri/identity/IdentityManager",
       "esri/Map",
       "esri/views/MapView",
       "esri/layers/FeatureLayer",
@@ -63,11 +64,23 @@
       "esri/Graphic",
       "esri/widgets/Sketch/SketchViewModel"
     ], function(
+      OAuthInfo, esriId,
       Map, MapView, FeatureLayer, GraphicsLayer,
       Sketch, Expand,
       geometryEngine, projection,
       Graphic, SketchViewModel
     ) {
+
+      const info = new OAuthInfo({
+        appId: "6IysV3XMGJIa37Wa",
+        popup: true,
+        flowType: "auto",
+        portalUrl: "https://mapasydatos.maps.arcgis.com"
+      });
+      esriId.registerOAuthInfos([info]);
+      esriId.checkSignInStatus(info.portalUrl + "/sharing")
+        .catch(() => esriId.getCredential(info.portalUrl + "/sharing"));
+
       function showToast(message, success = true) {
         const toast = document.getElementById("toast");
         toast.innerText = message;
@@ -140,7 +153,7 @@
         availableCreateTools: ["polygon", "rectangle", "circle"],
         creationMode: "update",
         visibleElements: {
-          undoRedoMenu: false, // 👈 desactivamos los del Sketch
+          undoRedoMenu: false,
           selectionTools: true,
           settingsMenu: true
         }
@@ -155,7 +168,6 @@
 
       view.ui.add(expandSketch, "top-left");
 
-      // Crear nueva geometría
       sketch.on("create", function(event) {
         if (event.state === "complete" && event.graphic.geometry.type !== "polyline") {
           const newFeature = event.graphic.clone();
@@ -170,22 +182,16 @@
         }
       });
 
-      // Actualizar geometría existente con historial
       sketch.on("update", function(event) {
         if ((event.toolEventInfo && event.toolEventInfo.type === "reshape-stop") || event.state === "complete") {
           const updatedGraphic = event.graphics[0];
-
-          // Guardar versión anterior en undo
           if (selectedPolygon && objectId && originalAttributes) {
             undoStack.push({
               geometry: selectedPolygon.clone(),
               attributes: { ...originalAttributes, OBJECTID: objectId }
             });
-            redoStack.length = 0; // limpiar redo
+            redoStack.length = 0;
           }
-
-          console.log("🔄 Editando geometría:", updatedGraphic.geometry);
-          console.log("🧾 Atributos:", updatedGraphic.attributes);
 
           featureLayer.applyEdits({
             updateFeatures: [{
@@ -203,7 +209,6 @@
         }
       });
 
-      // Cortar
       document.getElementById("cortarBtn").addEventListener("click", function() {
         if (!selectedPolygon) {
           showToast("⚠️ Seleccioná un polígono antes de cortar", false);
@@ -242,7 +247,6 @@
                 newGraphics.push(newGraphic);
               });
 
-              // Guardar el estado previo en undo
               undoStack.push({
                 geometry: selectedPolygon.clone(),
                 attributes: { ...originalAttributes, OBJECTID: objectId }
@@ -269,7 +273,6 @@
         });
       });
 
-      // 🔄 Undo
       document.getElementById("undoBtn").addEventListener("click", function() {
         if (undoStack.length === 0) {
           showToast("⚠️ Nada para deshacer", false);
@@ -297,7 +300,6 @@
         });
       });
 
-      // 🔁 Redo
       document.getElementById("redoBtn").addEventListener("click", function() {
         if (redoStack.length === 0) {
           showToast("⚠️ Nada para rehacer", false);
