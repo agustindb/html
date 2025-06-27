@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>OAuth Callback</title>
+</head>
+<body>
+  <p>Procesando autenticación…</p>
+  <script>
+    // Intenta cerrar la ventana si fue abierta por el flujo OAuth
+    if (window.opener) {
+      window.opener.postMessage("oauth-callback", "*");
+      window.close();
+    }
+  </script>
+</body>
+</html>
