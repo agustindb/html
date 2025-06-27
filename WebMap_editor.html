@@ -1,133 +1,78 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
+  <title>Editor con WebMap + OAuth</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Editor desde WebMap con Corte y Edición</title>
   <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css">
   <script src="https://js.arcgis.com/4.26/"></script>
-  <style>
-    #viewDiv { width: 100%; height: 100vh; }
-    #toast {
-      position: fixed;
-      bottom: 30px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 15px 25px;
-      border-radius: 6px;
-      font-weight: bold;
-      background-color: #323232;
-      color: white;
-      opacity: 0;
-      transition: opacity 0.5s ease;
-      z-index: 9999;
-    }
-    #toast.success { background-color: #28a745; }
-    #toast.error { background-color: #dc3545; }
-    #toast.show { opacity: 1; }
-  </style>
 </head>
 <body>
-  <div id="viewDiv"></div>
-  <div id="toast"></div>
+  <div id="viewDiv" style="width: 100vw; height: 100vh;"></div>
 
   <script>
     require([
       "esri/identity/OAuthInfo",
       "esri/identity/IdentityManager",
       "esri/WebMap",
-      "esri/views/MapView",
-      "esri/widgets/Sketch",
-      "esri/layers/GraphicsLayer",
-      "esri/widgets/Expand",
-      "esri/geometry/geometryEngine",
-      "esri/geometry/projection",
-      "esri/Graphic"
-    ], function(
-      OAuthInfo, esriId, WebMap, MapView,
-      Sketch, GraphicsLayer, Expand,
-      geometryEngine, projection, Graphic
-    ) {
+      "esri/views/MapView"
+    ], function(OAuthInfo, esriId, WebMap, MapView) {
+
+      const CLIENT_ID = "6IysV3XMGJIa37Wa";
+      const PORTAL_URL = "https://mapasydatos.maps.arcgis.com";
 
       const info = new OAuthInfo({
-        appId: "6IysV3XMGJIa37Wa",
-        portalUrl: "https://mapasydatos.maps.arcgis.com",
+        appId: CLIENT_ID,
+        portalUrl: PORTAL_URL,
         popup: true
       });
 
       esriId.registerOAuthInfos([info]);
-      esriId.checkSignInStatus(info.portalUrl + "/sharing")
-        .catch(() => esriId.getCredential(info.portalUrl + "/sharing"));
 
-      const webmap = new WebMap({
-        portalItem: { id: "8849d965dc3645fb88fb47daca23bed9" }
-      });
+      console.log("🔐 Iniciando autenticación...");
 
-      const view = new MapView({
-        container: "viewDiv",
-        map: webmap
-      });
+      esriId.checkSignInStatus(PORTAL_URL + "/sharing")
+        .then(() => {
+          console.log("✅ Ya autenticado");
+          iniciarWebMap();
+        })
+        .catch(() => {
+          console.log("🔄 Requiere autenticación, abriendo popup...");
+          esriId.getCredential(PORTAL_URL + "/sharing").then(() => {
+            console.log("✅ Autenticado desde popup");
+            iniciarWebMap();
+          }).catch((err) => {
+            console.error("❌ Error autenticación:", err);
+          });
+        });
 
-      const graphicsLayer = new GraphicsLayer();
-      webmap.add(graphicsLayer);
+      function iniciarWebMap() {
+        console.log("🗺️ Cargando WebMap...");
 
-      function showToast(message, success = true) {
-        const toast = document.getElementById("toast");
-        toast.innerText = message;
-        toast.className = `show ${success ? "success" : "error"}`;
-        setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3500);
+        const webmap = new WebMap({
+          portalItem: {
+            id: "8849d965dc3645fb88fb47daca23bed9"
+          }
+        });
+
+        webmap.load()
+          .then(() => {
+            console.log("✅ WebMap cargado correctamente");
+
+            const view = new MapView({
+              container: "viewDiv",
+              map: webmap
+            });
+
+            view.when(() => {
+              console.log("📌 MapView inicializado. Centro:", view.center.toJSON());
+            });
+
+          })
+          .catch((err) => {
+            console.error("❌ No se pudo cargar el WebMap:", err);
+          });
       }
-
-      view.when(() => {
-        const capa = webmap.layers.find(l => l.title.includes("Capa test edicion"));
-        if (!capa) {
-          showToast("❌ No se encontró la capa", false);
-          return;
-        }
-
-        const sketch = new Sketch({
-          view: view,
-          layer: graphicsLayer,
-          availableCreateTools: ["polygon", "rectangle", "circle"],
-          creationMode: "update",
-          visibleElements: {
-            undoRedoMenu: false,
-            selectionTools: true,
-            settingsMenu: true
-          }
-        });
-
-        const expandSketch = new Expand({
-          view: view,
-          content: sketch,
-          expandIconClass: "esri-icon-edit",
-          expanded: true
-        });
-
-        view.ui.add(expandSketch, "top-left");
-
-        sketch.on("create", function(event) {
-          if (event.state === "complete") {
-            capa.applyEdits({
-              addFeatures: [event.graphic]
-            }).then(() => {
-              showToast("🆕 Geometría creada correctamente");
-              graphicsLayer.remove(event.graphic);
-            }).catch(() => showToast("❌ Error al guardar la geometría", false));
-          }
-        });
-
-        sketch.on("update", function(event) {
-          if ((event.toolEventInfo && event.toolEventInfo.type === "reshape-stop") || event.state === "complete") {
-            capa.applyEdits({
-              updateFeatures: [event.graphics[0]]
-            }).then(() => showToast("✅ Geometría actualizada correctamente"))
-              .catch(() => showToast("❌ Error al actualizar la geometría", false));
-          }
-        });
-
-        projection.load().then(() => console.log("📐 Módulo 'projection' cargado"));
-      });
     });
   </script>
 </body>
