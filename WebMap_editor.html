@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Editor con WebMap + OAuth</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css">
+  <meta charset="UTF-8" />
+  <title>Login ArcGIS Manual</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css" />
   <script src="https://js.arcgis.com/4.26/"></script>
 </head>
 <body>
-  <div id="viewDiv" style="width: 100vw; height: 100vh;"></div>
+  <button id="loginBtn">🔐 Iniciar sesión con ArcGIS</button>
+  <div id="viewDiv" style="width: 100%; height: 90vh;"></div>
 
   <script>
     require([
@@ -29,35 +29,14 @@
 
       esriId.registerOAuthInfos([info]);
 
-      console.log("🔐 Iniciando autenticación...");
-
-      esriId.checkSignInStatus(PORTAL_URL + "/sharing")
-        .then(() => {
-          console.log("✅ Ya autenticado");
-          iniciarWebMap();
-        })
-        .catch(() => {
-          console.log("🔄 Requiere autenticación, abriendo popup...");
-          esriId.getCredential(PORTAL_URL + "/sharing").then(() => {
-            console.log("✅ Autenticado desde popup");
-            iniciarWebMap();
-          }).catch((err) => {
-            console.error("❌ Error autenticación:", err);
-          });
-        });
-
-      function iniciarWebMap() {
-        console.log("🗺️ Cargando WebMap...");
-
-        const webmap = new WebMap({
-          portalItem: {
-            id: "8849d965dc3645fb88fb47daca23bed9"
-          }
-        });
-
-        webmap.load()
+      document.getElementById("loginBtn").addEventListener("click", () => {
+        esriId.getCredential(PORTAL_URL + "/sharing")
           .then(() => {
-            console.log("✅ WebMap cargado correctamente");
+            console.log("✅ Login exitoso");
+
+            const webmap = new WebMap({
+              portalItem: { id: "8849d965dc3645fb88fb47daca23bed9" }
+            });
 
             const view = new MapView({
               container: "viewDiv",
@@ -65,14 +44,13 @@
             });
 
             view.when(() => {
-              console.log("📌 MapView inicializado. Centro:", view.center.toJSON());
+              console.log("📌 MapView listo");
             });
-
           })
-          .catch((err) => {
-            console.error("❌ No se pudo cargar el WebMap:", err);
+          .catch(err => {
+            console.error("❌ Error en login manual:", err);
           });
-      }
+      });
     });
   </script>
 </body>
