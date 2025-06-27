@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Editor con Corte y Dibujo</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css">
+  <script src="https://js.arcgis.com/4.26/"></script>
+  <style>
+    #viewDiv { width: 100%; height: 100vh; }
+    #cortarBtn, #undoBtn, #redoBtn {
+      position: absolute;
+      right: 1370px;
+      z-index: 999;
+      padding: 8px 12px;
+      background-color: white;
+      color: #151515;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    #cortarBtn { top: 170px; }
+    #undoBtn   { top: 220px; }
+    #redoBtn   { top: 270px; }
+
+    #toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 15px 25px;
+      border-radius: 6px;
+      font-weight: bold;
+      background-color: #323232;
+      color: white;
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      z-index: 9999;
+    }
+    #toast.success { background-color: #28a745; }
+    #toast.error { background-color: #dc3545; }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="viewDiv"></div>
+  <button id="cortarBtn">✂️ Cortar</button>
+  <button id="undoBtn">↩️ Undo</button>
+  <button id="redoBtn">↪️ Redo</button>
+  <div id="toast"></div>
+
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/MapView",
+      "esri/layers/FeatureLayer",
+      "esri/layers/GraphicsLayer",
+      "esri/widgets/Sketch",
+      "esri/widgets/Expand",
+      "esri/geometry/geometryEngine",
+      "esri/geometry/projection",
+      "esri/Graphic",
+      "esri/widgets/Sketch/SketchViewModel"
+    ], function(
+      Map, MapView, FeatureLayer, GraphicsLayer,
+      Sketch, Expand,
+      geometryEngine, projection,
+      Graphic, SketchViewModel
+    ) {
+      function showToast(message, success = true) {
+        const toast = document.getElementById("toast");
+        toast.innerText = message;
+        toast.className = `show ${success ? "success" : "error"}`;
+        setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3500);
+      }
+
+      function getURLParameter(name) {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get(name);
+      }
+
+      const idParam = getURLParameter("id");
+
+      const featureLayer = new FeatureLayer({
+        url: "https://services.arcgis.com/K1N9k0GQ4uh0JzlT/arcgis/rest/services/Capa_test_edicion/FeatureServer/0",
+        outFields: ["*"],
+        editable: true,
+        definitionExpression: idParam ? `Id_ciampagna = '${idParam}'` : undefined
+      });
+
+      const map = new Map({
+        basemap: "streets-navigation-vector",
+        layers: [featureLayer]
+      });
+
+      const view = new MapView({
+        container: "viewDiv",
+        map: map,
+        center: [-58, -34],
+        zoom: 6
+      });
+
+      const graphicsLayer = new GraphicsLayer();
+      map.add(graphicsLayer);
+
+      const undoStack = [];
+      const redoStack = [];
+
+      let selectedPolygon = null;
+      let objectId = null;
+      let originalAttributes = {};
+
+      projection.load().then(() => console.log("📐 Módulo 'projection' cargado"));
+
+      view.on("click", function(event) {
+        view.hitTest(event).then(function(response) {
+          const graphic = response.results.find(r => r.graphic.layer === featureLayer);
+          if (graphic && graphic.graphic.geometry) {
+            selectedPolygon = graphic.graphic.geometry.clone();
+            objectId = graphic.graphic.attributes.OBJECTID;
+            originalAttributes = { ...graphic.graphic.attributes };
+            delete originalAttributes.OBJECTID;
+
+            graphicsLayer.removeAll();
+            const selectedGraphic = graphic.graphic.clone();
+            selectedGraphic.symbol = {
+              type: "simple-fill",
+              color: [255, 255, 0, 0.4],
+              outline: { color: [255, 0, 0], width: 2 }
+            };
+            graphicsLayer.add(selectedGraphic);
+          }
+        });
+      });
+
+      const sketch = new Sketch({
+        view: view,
+        layer: graphicsLayer,
+        availableCreateTools: ["polygon", "rectangle", "circle"],
+        creationMode: "update",
+        visibleElements: {
+          undoRedoMenu: false, // 👈 desactivamos los del Sketch
+          selectionTools: true,
+          settingsMenu: true
+        }
+      });
+
+      const expandSketch = new Expand({
+        view: view,
+        content: sketch,
+        expandIconClass: "esri-icon-edit",
+        expanded: false
+      });
+
+      view.ui.add(expandSketch, "top-left");
+
+      // Crear nueva geometría
+      sketch.on("create", function(event) {
+        if (event.state === "complete" && event.graphic.geometry.type !== "polyline") {
+          const newFeature = event.graphic.clone();
+          featureLayer.applyEdits({
+            addFeatures: [newFeature]
+          }).then(() => {
+            showToast("🆕 Geometría creada correctamente");
+            graphicsLayer.remove(event.graphic);
+          }).catch(() => {
+            showToast("❌ Error al guardar la geometría", false);
+          });
+        }
+      });
+
+      // Actualizar geometría existente con historial
+      sketch.on("update", function(event) {
+        if ((event.toolEventInfo && event.toolEventInfo.type === "reshape-stop") || event.state === "complete") {
+          const updatedGraphic = event.graphics[0];
+
+          // Guardar versión anterior en undo
+          if (selectedPolygon && objectId && originalAttributes) {
+            undoStack.push({
+              geometry: selectedPolygon.clone(),
+              attributes: { ...originalAttributes, OBJECTID: objectId }
+            });
+            redoStack.length = 0; // limpiar redo
+          }
+
+          console.log("🔄 Editando geometría:", updatedGraphic.geometry);
+          console.log("🧾 Atributos:", updatedGraphic.attributes);
+
+          featureLayer.applyEdits({
+            updateFeatures: [{
+              geometry: updatedGraphic.geometry,
+              attributes: updatedGraphic.attributes
+            }]
+          }).then(() => {
+            selectedPolygon = updatedGraphic.geometry.clone();
+            originalAttributes = { ...updatedGraphic.attributes };
+            objectId = updatedGraphic.attributes.OBJECTID;
+            showToast("✅ Geometría actualizada correctamente");
+          }).catch(() => {
+            showToast("❌ Error al actualizar la geometría", false);
+          });
+        }
+      });
+
+      // Cortar
+      document.getElementById("cortarBtn").addEventListener("click", function() {
+        if (!selectedPolygon) {
+          showToast("⚠️ Seleccioná un polígono antes de cortar", false);
+          return;
+        }
+
+        const cutterSketch = new SketchViewModel({
+          view: view,
+          layer: graphicsLayer,
+          defaultUpdateOptions: { tool: "reshape" },
+          defaultCreateOptions: { mode: "click" }
+        });
+
+        cutterSketch.create("polyline");
+
+        cutterSketch.on("create", function(event) {
+          if (event.state === "complete") {
+            const cuttingLine = event.graphic.geometry;
+            const cutGeometries = geometryEngine.cut(selectedPolygon, cuttingLine);
+
+            if (cutGeometries && cutGeometries.length > 0) {
+              let newGraphics = [];
+
+              cutGeometries.forEach((geometry, i) => {
+                let projectedGeometry = projection.project(geometry, featureLayer.spatialReference) || geometry;
+                const atributosModificados = {
+                  ...originalAttributes,
+                  Id_ciampagna: `${originalAttributes.Id_ciampagna}_${i + 1}`
+                };
+
+                const newGraphic = new Graphic({
+                  geometry: projectedGeometry,
+                  attributes: atributosModificados
+                });
+
+                newGraphics.push(newGraphic);
+              });
+
+              // Guardar el estado previo en undo
+              undoStack.push({
+                geometry: selectedPolygon.clone(),
+                attributes: { ...originalAttributes, OBJECTID: objectId }
+              });
+              redoStack.length = 0;
+
+              featureLayer.applyEdits({
+                deleteFeatures: [{ objectId: objectId }],
+                addFeatures: newGraphics
+              }).then(() => {
+                featureLayer.refresh();
+                graphicsLayer.removeAll();
+                selectedPolygon = null;
+                objectId = null;
+                originalAttributes = {};
+                showToast("✂️ Corte aplicado correctamente");
+              }).catch(() => {
+                showToast("❌ Error al aplicar el corte", false);
+              });
+            } else {
+              showToast("⚠️ El corte no generó geometrías válidas", false);
+            }
+          }
+        });
+      });
+
+      // 🔄 Undo
+      document.getElementById("undoBtn").addEventListener("click", function() {
+        if (undoStack.length === 0) {
+          showToast("⚠️ Nada para deshacer", false);
+          return;
+        }
+
+        const lastEdit = undoStack.pop();
+        redoStack.push({
+          geometry: selectedPolygon?.clone(),
+          attributes: { ...originalAttributes, OBJECTID: objectId }
+        });
+
+        featureLayer.applyEdits({
+          updateFeatures: [{
+            geometry: lastEdit.geometry,
+            attributes: lastEdit.attributes
+          }]
+        }).then(() => {
+          selectedPolygon = lastEdit.geometry.clone();
+          objectId = lastEdit.attributes.OBJECTID;
+          originalAttributes = { ...lastEdit.attributes };
+          showToast("↩️ Deshacer aplicado");
+        }).catch(() => {
+          showToast("❌ Error al deshacer", false);
+        });
+      });
+
+      // 🔁 Redo
+      document.getElementById("redoBtn").addEventListener("click", function() {
+        if (redoStack.length === 0) {
+          showToast("⚠️ Nada para rehacer", false);
+          return;
+        }
+
+        const nextEdit = redoStack.pop();
+        undoStack.push({
+          geometry: selectedPolygon?.clone(),
+          attributes: { ...originalAttributes, OBJECTID: objectId }
+        });
+
+        featureLayer.applyEdits({
+          updateFeatures: [{
+            geometry: nextEdit.geometry,
+            attributes: nextEdit.attributes
+          }]
+        }).then(() => {
+          selectedPolygon = nextEdit.geometry.clone();
+          objectId = nextEdit.attributes.OBJECTID;
+          originalAttributes = { ...nextEdit.attributes };
+          showToast("↪️ Rehacer aplicado");
+        }).catch(() => {
+          showToast("❌ Error al rehacer", false);
+        });
+      });
+    });
+  </script>
+</body>
+</html>
