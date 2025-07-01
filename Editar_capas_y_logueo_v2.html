@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -44,7 +43,7 @@
         })
         .catch((error) => {
           if (error.name === "identity-manager:user-aborted") {
-            console.warn("⚠️ Login abortado manualmente (usuario cerró popup)");
+            console.warn("⚠️ Login abortado manualmente (usuario cerró popup o canceló)");
           } else {
             console.error("❌ Error en el flujo OAuth:", error);
           }
@@ -64,19 +63,25 @@
           definitionExpression: "1=1"
         });
 
-        const map = new Map({
-          basemap: "streets-navigation-vector",
-          layers: [featureLayer]
-        });
+        featureLayer.load().then(() => {
+          console.log("✅ FeatureLayer cargado con token correctamente");
 
-        const view = new MapView({
-          container: "viewDiv",
-          map: map,
-          center: [-58, -34],
-          zoom: 6
-        });
+          const map = new Map({
+            basemap: "streets-navigation-vector",
+            layers: [featureLayer]
+          });
 
-        console.log("✅ Mapa y capa cargados correctamente");
+          const view = new MapView({
+            container: "viewDiv",
+            map: map,
+            center: [-58, -34],
+            zoom: 6
+          });
+
+          console.log("✅ Mapa y capa visibles");
+        }).catch((error) => {
+          console.error("❌ Error cargando FeatureLayer:", error);
+        });
       }
 
     });
