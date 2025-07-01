@@ -37,9 +37,11 @@
           console.log("⚠️ Usuario no autenticado, solicitando login");
           return esriId.getCredential(info.portalUrl + "/sharing");
         })
-        .then(() => {
-          console.log("✅ Credencial obtenida correctamente después del login");
-          initLayer();
+        .then((credential) => {
+          if (credential) {
+            console.log("✅ Credencial obtenida correctamente después del login");
+            initLayer();
+          }
         })
         .catch((error) => {
           if (error.name === "identity-manager:user-aborted") {
@@ -48,12 +50,6 @@
             console.error("❌ Error en el flujo OAuth:", error);
           }
         });
-
-      window.addEventListener("message", function(event) {
-        if (event.data === "oauth-callback") {
-          console.log("✅ Callback OAuth recibido correctamente");
-        }
-      });
 
       function initLayer() {
         const featureLayer = new FeatureLayer({
