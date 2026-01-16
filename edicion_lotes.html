@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Editor Pro - Dashboard Edition</title>
+  <title>Editor Pro - Integración Silenciosa</title>
   <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css">
   <script src="https://js.arcgis.com/4.26/"></script>
   <style>
@@ -82,14 +82,21 @@
       "esri/widgets/Sketch/SketchViewModel"
     ], function(IdentityManager, OAuthInfo, Map, MapView, FeatureLayer, GraphicsLayer, FeatureForm, geometryEngine, Graphic, SketchViewModel) {
 
-      // 1. AUTENTICACIÓN OAUTH CON TU CLIENT ID
+      // 1. CONFIGURACIÓN DE AUTENTICACIÓN SILENCIOSA
       const info = new OAuthInfo({
         appId: "YGJPRC9c0NNe4Qou", 
-        popup: true,
-        portalUrl: "https://www.arcgis.com"
+        popup: false, // Intentar login sin popups molestos
+        portalUrl: "https://www.arcgis.com",
+        preserveUrlHash: true
       });
       IdentityManager.registerOAuthInfos([info]);
 
+      // Verificar si ya hay sesión en el navegador (Dashboard)
+      IdentityManager.checkSignInStatus(info.portalUrl + "/sharing")
+        .then(() => console.log("Acceso concedido automáticamente"))
+        .catch(() => IdentityManager.getCredential(info.portalUrl + "/sharing"));
+
+      // 2. CAPA Y MAPA
       const featureLayer = new FeatureLayer({
         url: "https://services.arcgis.com/K1N9k0GQ4uh0JzlT/arcgis/rest/services/Capa_test_edicion/FeatureServer/0",
         outFields: ["*"],
@@ -104,6 +111,7 @@
       let selectedGraphics = [];
       const featureForm = new FeatureForm({ container: "formContainer", layer: featureLayer });
 
+      // 3. FUNCIONES DE APOYO
       function showToast(msg, color = "#28a745") {
         const t = document.getElementById("toast");
         t.innerText = msg; t.style.backgroundColor = color;
@@ -117,12 +125,9 @@
       };
 
       function handleServerResponse(res, successMsg) {
-        const error = res.addFeatureResults?.find(r => r.error) || 
-                      res.deleteFeatureResults?.find(r => r.error) ||
-                      res.updateFeatureResults?.find(r => r.error);
-        if (error) { 
-          alert("🛑 ERROR DEL SERVIDOR:\n\n" + error.error.message); 
-        } else {
+        const error = res.addFeatureResults?.find(r => r.error) || res.deleteFeatureResults?.find(r => r.error);
+        if (error) { alert("🛑 ERROR:\n" + error.error.message); }
+        else {
           showToast(successMsg);
           featureLayer.refresh();
           graphicsLayer.removeAll();
@@ -131,6 +136,7 @@
         }
       }
 
+      // SELECCIÓN CON SHIFT
       view.on("click", (event) => {
         view.hitTest(event).then((res) => {
           const hit = res.results.find(r => r.graphic.layer === featureLayer);
@@ -147,10 +153,12 @@
 
       const sketchVM = new SketchViewModel({ view, layer: graphicsLayer });
 
+      // 4. ACCIONES (COMBINAR, DIBUJAR, EXPLOTAR, CORTAR)
+      
       document.getElementById("drawBtn").addEventListener("click", () => sketchVM.create("polygon"));
       
       document.getElementById("unirBtn").addEventListener("click", () => {
-        if (selectedGraphics.length < 2) return showToast("Selecciona 2+ con Shift", "#dc3545");
+        if (selectedGraphics.length < 2) return showToast("Shift+Clic en 2 o más", "#dc3545");
         const list = document.getElementById("lotesList");
         list.innerHTML = "";
         document.getElementById("panelTitle").innerText = "Heredar Datos";
@@ -159,8 +167,7 @@
         document.getElementById("attributesPanel").classList.add("open");
 
         selectedGraphics.forEach((g, i) => {
-          const div = document.createElement("div");
-          div.className = "lote-item";
+          const div = document.createElement("div"); div.className = "lote-item";
           div.innerHTML = `<strong>ID:</strong> ${g.attributes.Id_ciampagna || 'N/A'}<br><button class="btn-select-attr" data-idx="${i}">Usar este</button>`;
           list.appendChild(div);
         });
@@ -170,7 +177,7 @@
             const attrs = { ...selectedGraphics[e.target.dataset.idx].attributes };
             const union = geometryEngine.simplify(geometryEngine.union(selectedGraphics.map(g => g.geometry)));
             delete attrs.OBJECTID;
-            attrs.Id_ciampagna = (attrs.Id_ciampagna || "UNI") + "_U" + Math.floor(Math.random()*100);
+            attrs.Id_ciampagna = (attrs.Id_ciampagna || "U") + "_UNI" + Math.floor(Math.random()*100);
             attrs.Superficie = 0;
             featureLayer.applyEdits({ deleteFeatures: selectedGraphics, addFeatures: [new Graphic({ geometry: union, attributes: attrs })] }).then(res => handleServerResponse(res, "🔗 Unión lista"));
           }
