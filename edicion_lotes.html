@@ -3,99 +3,49 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Editor Pro - Integración Dashboard</title>
+  <title>Editor Pro - Sesión Integrada</title>
   <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css">
   <script src="https://js.arcgis.com/4.26/"></script>
   <style>
     body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: sans-serif; background-color: transparent; }
     #viewDiv { width: 100%; height: 100vh; }
-    
-    .action-bar { 
-      position: absolute; top: 10px; right: 10px; 
-      display: flex; flex-direction: column; gap: 6px; z-index: 100; 
-    }
-    .action-bar button { 
-      padding: 8px 12px; background: white; border: 1px solid #0079c1; 
-      border-radius: 4px; font-weight: bold; cursor: pointer; 
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-size: 11px;
-    }
-    .action-bar button:hover { background: #f0f7ff; }
-
-    #attributesPanel { 
-      position: absolute; top: 0; left: -350px; width: 300px; height: 100%; 
-      background: white; z-index: 101; transition: left 0.3s ease; 
-      padding: 20px; box-shadow: 2px 0 10px rgba(0,0,0,0.2); overflow-y: auto; 
-    }
+    .action-bar { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; z-index: 100; }
+    .action-bar button { padding: 8px 12px; background: white; border: 1px solid #0079c1; border-radius: 4px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); font-size: 11px; }
+    #attributesPanel { position: absolute; top: 0; left: -350px; width: 300px; height: 100%; background: white; z-index: 101; transition: left 0.3s ease; padding: 20px; box-shadow: 2px 0 10px rgba(0,0,0,0.2); overflow-y: auto; }
     #attributesPanel.open { left: 0; }
-    
     .lote-item { border: 1px solid #ddd; padding: 10px; margin-bottom: 8px; border-radius: 4px; font-size: 12px; }
     .btn-select-attr { width: 100%; margin-top: 5px; padding: 5px; background: #0079c1; color: white; border: none; cursor: pointer; }
     .btn-save { width: 100%; margin-top: 15px; padding: 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-    
-    #toast { 
-      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); 
-      padding: 10px 20px; border-radius: 4px; color: white; opacity: 0; 
-      transition: opacity 0.4s; z-index: 1000; font-size: 13px; pointer-events: none;
-    }
+    #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 20px; border-radius: 4px; color: white; opacity: 0; transition: opacity 0.4s; z-index: 1000; font-size: 13px; pointer-events: none; }
     #toast.show { opacity: 1; }
   </style>
 </head>
 <body>
   <div id="viewDiv"></div>
-  
-  <div id="attributesPanel">
-    <span style="float:right; cursor:pointer; color:red; font-weight:bold;" onclick="closePanel()">✕</span>
-    <h3 id="panelTitle" style="margin-top:0">Atributos</h3>
-    <div id="selectorContainer" style="display:none;">
-      <p style="font-size:12px">Elegir lote de origen para datos:</p>
-      <div id="lotesList"></div>
-    </div>
-    <div id="formSection">
-      <div id="formContainer"></div>
-      <button class="btn-save" id="saveAttrsBtn">💾 Guardar Cambios</button>
-    </div>
-  </div>
-
-  <div class="action-bar">
-    <button id="drawBtn">➕ Dibujar</button>
-    <button id="unirBtn">🔗 Combinar</button>
-    <button id="explotarBtn">💥 Explotar</button>
-    <button id="cortarBtn">✂️ Cortar</button>
-    <button id="infoBtn">📋 Datos</button>
-  </div>
-
+  <div id="attributesPanel"><span style="float:right; cursor:pointer; color:red; font-weight:bold;" onclick="closePanel()">✕</span><h3 id="panelTitle">Atributos</h3><div id="selectorContainer" style="display:none;"><p>Elegir lote origen:</p><div id="lotesList"></div></div><div id="formSection"><div id="formContainer"></div><button class="btn-save" id="saveAttrsBtn">💾 Guardar Cambios</button></div></div>
+  <div class="action-bar"><button id="drawBtn">➕ Dibujar</button><button id="unirBtn">🔗 Combinar</button><button id="explotarBtn">💥 Explotar</button><button id="cortarBtn">✂️ Cortar</button><button id="infoBtn">📋 Datos</button></div>
   <div id="toast"></div>
 
   <script>
     require([
-      "esri/identity/IdentityManager",
-      "esri/identity/OAuthInfo",
-      "esri/Map", 
-      "esri/views/MapView", 
-      "esri/layers/FeatureLayer",
-      "esri/layers/GraphicsLayer", 
-      "esri/widgets/FeatureForm",
-      "esri/geometry/geometryEngine", 
-      "esri/Graphic", 
-      "esri/widgets/Sketch/SketchViewModel"
+      "esri/identity/IdentityManager", "esri/identity/OAuthInfo", "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
+      "esri/layers/GraphicsLayer", "esri/widgets/FeatureForm", "esri/geometry/geometryEngine", "esri/Graphic", "esri/widgets/Sketch/SketchViewModel"
     ], function(IdentityManager, OAuthInfo, Map, MapView, FeatureLayer, GraphicsLayer, FeatureForm, geometryEngine, Graphic, SketchViewModel) {
 
-      // 1. AUTENTICACIÓN OPTIMIZADA
+      // CONFIGURACIÓN DE IDENTIDAD INTEGRADA
       const info = new OAuthInfo({
-        appId: "YGJPRC9c0NNe4Qou", 
+        appId: "YGJPRC9c0NNe4Qou", //
         popup: false,
         portalUrl: "https://www.arcgis.com",
-        preserveUrlHash: true,
-        authNamespace: "agustindb_editor" 
+        preserveUrlHash: true
       });
       IdentityManager.registerOAuthInfos([info]);
 
-      // Intento de capturar sesión del Dashboard
-      IdentityManager.checkSignInStatus(info.portalUrl + "/sharing")
-        .then(() => console.log("Sesión heredada"))
-        .catch(() => IdentityManager.getCredential(info.portalUrl + "/sharing", { oAuthPopupConfirmation: false }));
+      // Captura automática de la sesión del Dashboard
+      IdentityManager.checkSignInStatus(info.portalUrl + "/sharing").catch(() => {
+        return IdentityManager.getCredential(info.portalUrl + "/sharing", { oAuthPopupConfirmation: false });
+      });
 
-      // 2. CAPA Y VISTA
       const featureLayer = new FeatureLayer({
         url: "https://services.arcgis.com/K1N9k0GQ4uh0JzlT/arcgis/rest/services/Capa_test_edicion/FeatureServer/0",
         outFields: ["*"],
@@ -103,67 +53,34 @@
       });
 
       const map = new Map({ basemap: "streets-navigation-vector", layers: [featureLayer] });
-      const view = new MapView({ 
-        container: "viewDiv", 
-        map: map, 
-        center: [-63.67, -31.91], 
-        zoom: 12 
-      });
+      const view = new MapView({ container: "viewDiv", map: map, center: [-63.67, -31.91], zoom: 12 });
       const graphicsLayer = new GraphicsLayer();
       map.add(graphicsLayer);
 
-      let selectedGraphics = [];
-      const featureForm = new FeatureForm({ container: "formContainer", layer: featureLayer });
-
-      // 3. SNAPPING ACTIVO
+      // SNAPPING PARA PRECISIÓN
       const sketchVM = new SketchViewModel({ 
-        view: view, 
-        layer: graphicsLayer,
-        snappingOptions: {
-          enabled: true,
-          featureSources: [{ layer: featureLayer, enabled: true }]
-        }
+        view, layer: graphicsLayer,
+        snappingOptions: { enabled: true, featureSources: [{ layer: featureLayer, enabled: true }] }
       });
 
-      // 4. ZOOM DINÁMICO (?id=xxx)
+      // ZOOM AUTOMÁTICO AL SELECCIONAR EN DASHBOARD
       const urlParams = new URLSearchParams(window.location.search);
       const targetId = urlParams.get("id");
       if (targetId) {
         view.when(() => {
-          const query = featureLayer.createQuery();
-          query.where = `Id_ciampagna = '${targetId}'`;
-          query.returnGeometry = true;
-          featureLayer.queryFeatures(query).then((results) => {
-            if (results.features.length > 0) {
-              view.goTo(results.features[0].geometry.extent.expand(2));
-            }
+          featureLayer.queryFeatures({ where: `Id_ciampagna = '${targetId}'`, returnGeometry: true }).then(res => {
+            if (res.features.length > 0) view.goTo(res.features[0].geometry.extent.expand(2));
           });
         });
       }
 
-      // 5. FUNCIONES DE EDICIÓN
-      function showToast(msg, color = "#28a745") {
-        const t = document.getElementById("toast");
-        t.innerText = msg; t.style.backgroundColor = color;
-        t.className = "show"; setTimeout(() => t.className = "", 3000);
-      }
-
-      window.closePanel = () => {
-        document.getElementById("attributesPanel").classList.remove("open");
-        document.getElementById("selectorContainer").style.display = "none";
-        document.getElementById("formSection").style.display = "block";
-      };
+      function showToast(msg, color = "#28a745") { const t = document.getElementById("toast"); t.innerText = msg; t.style.backgroundColor = color; t.className = "show"; setTimeout(() => t.className = "", 3000); }
+      window.closePanel = () => { document.getElementById("attributesPanel").classList.remove("open"); document.getElementById("selectorContainer").style.display = "none"; document.getElementById("formSection").style.display = "block"; };
 
       function handleServerResponse(res, successMsg) {
         const error = res.addFeatureResults?.find(r => r.error) || res.deleteFeatureResults?.find(r => r.error);
-        if (error) { alert("🛑 Error:\n" + error.error.message); }
-        else {
-          showToast(successMsg);
-          featureLayer.refresh();
-          graphicsLayer.removeAll();
-          selectedGraphics = [];
-          closePanel();
-        }
+        if (error) alert("Error:\n" + error.error.message);
+        else { showToast(successMsg); featureLayer.refresh(); graphicsLayer.removeAll(); closePanel(); }
       }
 
       view.on("click", (event) => {
@@ -180,35 +97,34 @@
         });
       });
 
-      document.getElementById("drawBtn").addEventListener("click", () => sketchVM.create("polygon"));
-      
-      document.getElementById("unirBtn").addEventListener("click", () => {
-        if (selectedGraphics.length < 2) return showToast("Selecciona 2 lotes con Shift", "#dc3545");
-        const list = document.getElementById("lotesList");
-        list.innerHTML = "";
+      let selectedGraphics = [];
+      const featureForm = new FeatureForm({ container: "formContainer", layer: featureLayer });
+
+      document.getElementById("drawBtn").onclick = () => sketchVM.create("polygon");
+      document.getElementById("unirBtn").onclick = () => {
+        if (selectedGraphics.length < 2) return showToast("Selecciona 2+ con Shift", "#dc3545");
+        const list = document.getElementById("lotesList"); list.innerHTML = "";
         document.getElementById("formSection").style.display = "none";
         document.getElementById("selectorContainer").style.display = "block";
         document.getElementById("attributesPanel").classList.add("open");
-
         selectedGraphics.forEach((g, i) => {
           const div = document.createElement("div"); div.className = "lote-item";
           div.innerHTML = `<strong>ID:</strong> ${g.attributes.Id_ciampagna || 'N/A'}<br><button class="btn-select-attr" data-idx="${i}">Heredar de este</button>`;
           list.appendChild(div);
         });
-
         list.onclick = (e) => {
           if (e.target.dataset.idx) {
             const attrs = { ...selectedGraphics[e.target.dataset.idx].attributes };
             const union = geometryEngine.simplify(geometryEngine.union(selectedGraphics.map(g => g.geometry)));
             delete attrs.OBJECTID;
             attrs.Id_ciampagna = (attrs.Id_ciampagna || "U") + "_UNI" + Math.floor(Math.random()*100);
-            attrs.Superficie = 0; // Se puede calcular con geometryEngine.geodesicArea
-            featureLayer.applyEdits({ deleteFeatures: selectedGraphics, addFeatures: [new Graphic({ geometry: union, attributes: attrs })] }).then(res => handleServerResponse(res, "🔗 Lotes unidos"));
+            attrs.Superficie = 0;
+            featureLayer.applyEdits({ deleteFeatures: selectedGraphics, addFeatures: [new Graphic({ geometry: union, attributes: attrs })] }).then(res => handleServerResponse(res, "🔗 Unión lista"));
           }
         };
-      });
+      };
 
-      document.getElementById("explotarBtn").addEventListener("click", () => {
+      document.getElementById("explotarBtn").onclick = () => {
         if (selectedGraphics.length !== 1) return;
         const g = selectedGraphics[0];
         if (g.geometry.rings.length <= 1) return;
@@ -219,16 +135,16 @@
           attrs.Superficie = 0;
           return new Graphic({ geometry: geom, attributes: attrs });
         });
-        featureLayer.applyEdits({ deleteFeatures: [g], addFeatures: adds }).then(res => handleServerResponse(res, "💥 Polígono explotado"));
-      });
+        featureLayer.applyEdits({ deleteFeatures: [g], addFeatures: adds }).then(res => handleServerResponse(res, "💥 Explotado"));
+      };
 
-      document.getElementById("cortarBtn").addEventListener("click", () => { if (selectedGraphics.length > 0) sketchVM.create("polyline"); });
+      document.getElementById("cortarBtn").onclick = () => { if (selectedGraphics.length > 0) sketchVM.create("polyline"); };
 
       sketchVM.on("create", (event) => {
         if (event.state === "complete") {
           if (event.graphic.geometry.type === "polygon") {
             const feat = new Graphic({ geometry: event.graphic.geometry, attributes: { Id_ciampagna: "NUEVO_"+Date.now(), Superficie: 0 } });
-            featureLayer.applyEdits({ addFeatures: [feat] }).then(res => handleServerResponse(res, "✅ Lote creado"));
+            featureLayer.applyEdits({ addFeatures: [feat] }).then(res => handleServerResponse(res, "✅ Guardado"));
           } else if (event.graphic.geometry.type === "polyline") {
             const cut = geometryEngine.cut(geometryEngine.simplify(selectedGraphics[0].geometry), event.graphic.geometry);
             if (cut.length > 1) {
@@ -238,19 +154,19 @@
                 attrs.Superficie = 0;
                 return new Graphic({ geometry: geom, attributes: attrs });
               });
-              featureLayer.applyEdits({ deleteFeatures: [selectedGraphics[0]], addFeatures: adds }).then(res => handleServerResponse(res, "✂️ Lote cortado"));
+              featureLayer.applyEdits({ deleteFeatures: [selectedGraphics[0]], addFeatures: adds }).then(res => handleServerResponse(res, "✂️ Cortado"));
             }
           }
         }
       });
 
-      document.getElementById("saveAttrsBtn").addEventListener("click", () => {
+      document.getElementById("saveAttrsBtn").onclick = () => {
         const update = featureForm.feature.clone();
         update.attributes = { ...update.attributes, ...featureForm.getValues() };
-        featureLayer.applyEdits({ updateFeatures: [update] }).then(res => handleServerResponse(res, "💾 Datos guardados"));
-      });
+        featureLayer.applyEdits({ updateFeatures: [update] }).then(res => handleServerResponse(res, "💾 Guardado"));
+      };
 
-      document.getElementById("infoBtn").addEventListener("click", () => { if (selectedGraphics.length > 0) document.getElementById("attributesPanel").classList.add("open"); });
+      document.getElementById("infoBtn").onclick = () => { if (selectedGraphics.length > 0) document.getElementById("attributesPanel").classList.add("open"); };
     });
   </script>
 </body>
