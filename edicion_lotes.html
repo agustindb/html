@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Editor Pro - Integración Dashboard</title>
+  <title>Editor Lotes - Solución iFrame</title>
   <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css">
   <script src="https://js.arcgis.com/4.26/"></script>
   <style>
@@ -22,26 +22,8 @@
 </head>
 <body>
   <div id="viewDiv"></div>
-  <div id="attributesPanel">
-    <span style="float:right; cursor:pointer; color:red; font-weight:bold;" onclick="closePanel()">✕</span>
-    <h3 id="panelTitle" style="margin-top:0">Atributos</h3>
-    <div id="selectorContainer" style="display:none;">
-      <p style="font-size:12px">Heredar datos de:</p>
-      <div id="lotesList"></div>
-    </div>
-    <div id="formSection">
-      <div id="formContainer"></div>
-      <button class="btn-save" id="saveAttrsBtn">💾 Guardar Cambios</button>
-    </div>
-  </div>
-
-  <div class="action-bar">
-    <button id="drawBtn">➕ Dibujar</button>
-    <button id="unirBtn">🔗 Combinar</button>
-    <button id="explotarBtn">💥 Explotar</button>
-    <button id="cortarBtn">✂️ Cortar</button>
-    <button id="infoBtn">📋 Datos</button>
-  </div>
+  <div id="attributesPanel"><span style="float:right; cursor:pointer; color:red; font-weight:bold;" onclick="closePanel()">✕</span><h3 id="panelTitle">Atributos</h3><div id="selectorContainer" style="display:none;"><p>Heredar datos de:</p><div id="lotesList"></div></div><div id="formSection"><div id="formContainer"></div><button class="btn-save" id="saveAttrsBtn">💾 Guardar Cambios</button></div></div>
+  <div class="action-bar"><button id="drawBtn">➕ Dibujar</button><button id="unirBtn">🔗 Combinar</button><button id="explotarBtn">💥 Explotar</button><button id="cortarBtn">✂️ Cortar</button><button id="infoBtn">📋 Datos</button></div>
   <div id="toast"></div>
 
   <script>
@@ -50,21 +32,21 @@
       "esri/layers/GraphicsLayer", "esri/widgets/FeatureForm", "esri/geometry/geometryEngine", "esri/Graphic", "esri/widgets/Sketch/SketchViewModel"
     ], function(IdentityManager, OAuthInfo, Map, MapView, FeatureLayer, GraphicsLayer, FeatureForm, geometryEngine, Graphic, SketchViewModel) {
 
-      // 1. CONFIGURACIÓN DE IDENTIDAD ESPECIAL PARA DASHBOARD
+      // 1. SOLUCIÓN AL ERROR DE X-FRAME-OPTIONS
       const info = new OAuthInfo({
-        appId: "YGJPRC9c0NNe4Qou",
-        popup: false, 
+        appId: "YGJPRC9c0NNe4Qou", //
+        popup: true, // ¡CAMBIO CLAVE! Usar popup para que el login ocurra FUERA del iFrame
         portalUrl: "https://www.arcgis.com",
         preserveUrlHash: true
       });
       IdentityManager.registerOAuthInfos([info]);
 
-      // Intenta capturar la sesión del Dashboard sin abrir ventanas
+      // Intento silencioso primero
       IdentityManager.checkSignInStatus(info.portalUrl + "/sharing").catch(() => {
-        return IdentityManager.getCredential(info.portalUrl + "/sharing", { oAuthPopupConfirmation: false });
+        // Si falla, pedimos login pero en una ventana nueva para no ser bloqueados
+        console.log("Sesión no detectada, esperando acción del usuario...");
       });
 
-      // 2. CAPA Y VISTA
       const featureLayer = new FeatureLayer({
         url: "https://services.arcgis.com/K1N9k0GQ4uh0JzlT/arcgis/rest/services/Capa_test_edicion/FeatureServer/0",
         outFields: ["*"],
@@ -76,13 +58,13 @@
       const graphicsLayer = new GraphicsLayer();
       map.add(graphicsLayer);
 
-      // 3. SNAPPING ACTIVO PARA PRECISIÓN
+      // SNAPPING PARA PRECISIÓN
       const sketchVM = new SketchViewModel({ 
-        view: view, layer: graphicsLayer,
+        view, layer: graphicsLayer,
         snappingOptions: { enabled: true, featureSources: [{ layer: featureLayer, enabled: true }] }
       });
 
-      // 4. ZOOM DINÁMICO DESDE DASHBOARD
+      // ZOOM DESDE DASHBOARD
       const urlParams = new URLSearchParams(window.location.search);
       const targetId = urlParams.get("id");
       if (targetId) {
@@ -93,17 +75,13 @@
         });
       }
 
-      // 5. FUNCIONES DE APOYO Y EDICIÓN
-      let selectedGraphics = [];
-      const featureForm = new FeatureForm({ container: "formContainer", layer: featureLayer });
-
       function showToast(msg, color = "#28a745") { const t = document.getElementById("toast"); t.innerText = msg; t.style.backgroundColor = color; t.className = "show"; setTimeout(() => t.className = "", 3000); }
       window.closePanel = () => { document.getElementById("attributesPanel").classList.remove("open"); document.getElementById("selectorContainer").style.display = "none"; document.getElementById("formSection").style.display = "block"; };
 
       function handleServerResponse(res, successMsg) {
         const error = res.addFeatureResults?.find(r => r.error) || res.deleteFeatureResults?.find(r => r.error) || res.updateFeatureResults?.find(r => r.error);
         if (error) alert("Error:\n" + error.error.message);
-        else { showToast(successMsg); featureLayer.refresh(); graphicsLayer.removeAll(); selectedGraphics = []; closePanel(); }
+        else { showToast(successMsg); featureLayer.refresh(); graphicsLayer.removeAll(); closePanel(); }
       }
 
       view.on("click", (event) => {
@@ -120,8 +98,10 @@
         });
       });
 
+      let selectedGraphics = [];
+      const featureForm = new FeatureForm({ container: "formContainer", layer: featureLayer });
+
       document.getElementById("drawBtn").onclick = () => sketchVM.create("polygon");
-      
       document.getElementById("unirBtn").onclick = () => {
         if (selectedGraphics.length < 2) return showToast("Shift+Clic en 2+ lotes", "#dc3545");
         const list = document.getElementById("lotesList"); list.innerHTML = "";
@@ -130,7 +110,7 @@
         document.getElementById("attributesPanel").classList.add("open");
         selectedGraphics.forEach((g, i) => {
           const div = document.createElement("div"); div.className = "lote-item";
-          div.innerHTML = `<strong>ID:</strong> ${g.attributes.Id_ciampagna || 'N/A'}<br><button class="btn-select-attr" data-idx="${i}">Heredar de este</button>`;
+          div.innerHTML = `<strong>ID:</strong> ${g.attributes.Id_ciampagna || 'N/A'}<br><button class="btn-select-attr" data-idx="${i}">Usar este ID</button>`;
           list.appendChild(div);
         });
         list.onclick = (e) => {
@@ -139,7 +119,6 @@
             const union = geometryEngine.simplify(geometryEngine.union(selectedGraphics.map(g => g.geometry)));
             delete attrs.OBJECTID;
             attrs.Id_ciampagna = (attrs.Id_ciampagna || "U") + "_UNI" + Math.floor(Math.random()*100);
-            attrs.Superficie = 0;
             featureLayer.applyEdits({ deleteFeatures: selectedGraphics, addFeatures: [new Graphic({ geometry: union, attributes: attrs })] }).then(res => handleServerResponse(res, "🔗 Unión lista"));
           }
         };
@@ -152,7 +131,6 @@
           const geom = g.geometry.clone(); geom.rings = [ring];
           const attrs = { ...g.attributes }; delete attrs.OBJECTID;
           attrs.Id_ciampagna = `EXP_${Math.floor(Math.random()*1000)}_${i}`;
-          attrs.Superficie = 0;
           return new Graphic({ geometry: geom, attributes: attrs });
         });
         featureLayer.applyEdits({ deleteFeatures: [g], addFeatures: adds }).then(res => handleServerResponse(res, "💥 Explotado"));
@@ -170,8 +148,7 @@
             if (cut.length > 1) {
               const adds = cut.map((geom, i) => {
                 const attrs = { ...selectedGraphics[0].attributes }; delete attrs.OBJECTID;
-                attrs.Id_ciampagna = `CORTE_${Math.floor(Math.random()*1000)}_${i}`;
-                attrs.Superficie = 0;
+                attrs.Id_ciampagna = `CUT_${Math.floor(Math.random()*1000)}_${i}`;
                 return new Graphic({ geometry: geom, attributes: attrs });
               });
               featureLayer.applyEdits({ deleteFeatures: [selectedGraphics[0]], addFeatures: adds }).then(res => handleServerResponse(res, "✂️ Cortado"));
@@ -183,7 +160,7 @@
       document.getElementById("saveAttrsBtn").onclick = () => {
         const update = featureForm.feature.clone();
         update.attributes = { ...update.attributes, ...featureForm.getValues() };
-        featureLayer.applyEdits({ updateFeatures: [update] }).then(res => handleServerResponse(res, "💾 Guardado"));
+        featureLayer.applyEdits({ updateFeatures: [update] }).then(res => handleServerResponse(res, "💾 Actualizado"));
       };
 
       document.getElementById("infoBtn").onclick = () => { if (selectedGraphics.length > 0) document.getElementById("attributesPanel").classList.add("open"); };
