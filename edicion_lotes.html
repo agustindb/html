@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Editor de Lotes Pro - Dashboard</title>
+  <title>Editor Pro - Integración Dashboard</title>
   <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css">
   <script src="https://js.arcgis.com/4.26/"></script>
   <style>
@@ -80,21 +80,22 @@
       "esri/widgets/Sketch/SketchViewModel"
     ], function(IdentityManager, OAuthInfo, Map, MapView, FeatureLayer, GraphicsLayer, FeatureForm, geometryEngine, Graphic, SketchViewModel) {
 
-      // 1. AUTENTICACIÓN SILENCIOSA (DASHBOARD)
+      // 1. AUTENTICACIÓN OPTIMIZADA
       const info = new OAuthInfo({
         appId: "YGJPRC9c0NNe4Qou", 
         popup: false,
         portalUrl: "https://www.arcgis.com",
-        preserveUrlHash: true
+        preserveUrlHash: true,
+        authNamespace: "agustindb_editor" 
       });
       IdentityManager.registerOAuthInfos([info]);
 
-      // Intento de login automático sin cuadros de diálogo si ya hay sesión
+      // Intento de capturar sesión del Dashboard
       IdentityManager.checkSignInStatus(info.portalUrl + "/sharing")
-        .then(() => console.log("Sesión activa detectada"))
+        .then(() => console.log("Sesión heredada"))
         .catch(() => IdentityManager.getCredential(info.portalUrl + "/sharing", { oAuthPopupConfirmation: false }));
 
-      // 2. CAPA Y VISTA (Centrado en zona Oncativo)
+      // 2. CAPA Y VISTA
       const featureLayer = new FeatureLayer({
         url: "https://services.arcgis.com/K1N9k0GQ4uh0JzlT/arcgis/rest/services/Capa_test_edicion/FeatureServer/0",
         outFields: ["*"],
@@ -102,14 +103,19 @@
       });
 
       const map = new Map({ basemap: "streets-navigation-vector", layers: [featureLayer] });
-      const view = new MapView({ container: "viewDiv", map: map, center: [-63.67, -31.91], zoom: 12 });
+      const view = new MapView({ 
+        container: "viewDiv", 
+        map: map, 
+        center: [-63.67, -31.91], 
+        zoom: 12 
+      });
       const graphicsLayer = new GraphicsLayer();
       map.add(graphicsLayer);
 
       let selectedGraphics = [];
       const featureForm = new FeatureForm({ container: "formContainer", layer: featureLayer });
 
-      // 3. SNAPPING (PARA PRECISIÓN)
+      // 3. SNAPPING ACTIVO
       const sketchVM = new SketchViewModel({ 
         view: view, 
         layer: graphicsLayer,
@@ -119,7 +125,7 @@
         }
       });
 
-      // 4. ZOOM DINÁMICO DESDE DASHBOARD (?id=xxx)
+      // 4. ZOOM DINÁMICO (?id=xxx)
       const urlParams = new URLSearchParams(window.location.search);
       const targetId = urlParams.get("id");
       if (targetId) {
@@ -135,7 +141,7 @@
         });
       }
 
-      // 5. EVENTOS Y LÓGICA
+      // 5. FUNCIONES DE EDICIÓN
       function showToast(msg, color = "#28a745") {
         const t = document.getElementById("toast");
         t.innerText = msg; t.style.backgroundColor = color;
@@ -149,8 +155,8 @@
       };
 
       function handleServerResponse(res, successMsg) {
-        const error = res.addFeatureResults?.find(r => r.error) || res.deleteFeatureResults?.find(r => r.error) || res.updateFeatureResults?.find(r => r.error);
-        if (error) { alert("🛑 ERROR:\n" + error.error.message); }
+        const error = res.addFeatureResults?.find(r => r.error) || res.deleteFeatureResults?.find(r => r.error);
+        if (error) { alert("🛑 Error:\n" + error.error.message); }
         else {
           showToast(successMsg);
           featureLayer.refresh();
@@ -177,25 +183,27 @@
       document.getElementById("drawBtn").addEventListener("click", () => sketchVM.create("polygon"));
       
       document.getElementById("unirBtn").addEventListener("click", () => {
-        if (selectedGraphics.length < 2) return showToast("Usa Shift+Clic para seleccionar 2+", "#dc3545");
+        if (selectedGraphics.length < 2) return showToast("Selecciona 2 lotes con Shift", "#dc3545");
         const list = document.getElementById("lotesList");
         list.innerHTML = "";
         document.getElementById("formSection").style.display = "none";
         document.getElementById("selectorContainer").style.display = "block";
         document.getElementById("attributesPanel").classList.add("open");
+
         selectedGraphics.forEach((g, i) => {
           const div = document.createElement("div"); div.className = "lote-item";
-          div.innerHTML = `<strong>ID:</strong> ${g.attributes.Id_ciampagna || 'N/A'}<br><button class="btn-select-attr" data-idx="${i}">Usar este</button>`;
+          div.innerHTML = `<strong>ID:</strong> ${g.attributes.Id_ciampagna || 'N/A'}<br><button class="btn-select-attr" data-idx="${i}">Heredar de este</button>`;
           list.appendChild(div);
         });
+
         list.onclick = (e) => {
           if (e.target.dataset.idx) {
             const attrs = { ...selectedGraphics[e.target.dataset.idx].attributes };
             const union = geometryEngine.simplify(geometryEngine.union(selectedGraphics.map(g => g.geometry)));
             delete attrs.OBJECTID;
             attrs.Id_ciampagna = (attrs.Id_ciampagna || "U") + "_UNI" + Math.floor(Math.random()*100);
-            attrs.Superficie = 0;
-            featureLayer.applyEdits({ deleteFeatures: selectedGraphics, addFeatures: [new Graphic({ geometry: union, attributes: attrs })] }).then(res => handleServerResponse(res, "🔗 Unión exitosa"));
+            attrs.Superficie = 0; // Se puede calcular con geometryEngine.geodesicArea
+            featureLayer.applyEdits({ deleteFeatures: selectedGraphics, addFeatures: [new Graphic({ geometry: union, attributes: attrs })] }).then(res => handleServerResponse(res, "🔗 Lotes unidos"));
           }
         };
       });
@@ -211,7 +219,7 @@
           attrs.Superficie = 0;
           return new Graphic({ geometry: geom, attributes: attrs });
         });
-        featureLayer.applyEdits({ deleteFeatures: [g], addFeatures: adds }).then(res => handleServerResponse(res, "💥 Explotado"));
+        featureLayer.applyEdits({ deleteFeatures: [g], addFeatures: adds }).then(res => handleServerResponse(res, "💥 Polígono explotado"));
       });
 
       document.getElementById("cortarBtn").addEventListener("click", () => { if (selectedGraphics.length > 0) sketchVM.create("polyline"); });
@@ -219,18 +227,18 @@
       sketchVM.on("create", (event) => {
         if (event.state === "complete") {
           if (event.graphic.geometry.type === "polygon") {
-            const feat = new Graphic({ geometry: event.graphic.geometry, attributes: { Id_ciampagna: "DIB_"+Date.now(), Superficie: 0 } });
-            featureLayer.applyEdits({ addFeatures: [feat] }).then(res => handleServerResponse(res, "✅ Dibujo guardado"));
+            const feat = new Graphic({ geometry: event.graphic.geometry, attributes: { Id_ciampagna: "NUEVO_"+Date.now(), Superficie: 0 } });
+            featureLayer.applyEdits({ addFeatures: [feat] }).then(res => handleServerResponse(res, "✅ Lote creado"));
           } else if (event.graphic.geometry.type === "polyline") {
             const cut = geometryEngine.cut(geometryEngine.simplify(selectedGraphics[0].geometry), event.graphic.geometry);
             if (cut.length > 1) {
               const adds = cut.map((geom, i) => {
                 const attrs = { ...selectedGraphics[0].attributes }; delete attrs.OBJECTID;
-                attrs.Id_ciampagna = `CUT_${Math.floor(Math.random()*1000)}_${i}`;
+                attrs.Id_ciampagna = `CORTE_${Math.floor(Math.random()*1000)}_${i}`;
                 attrs.Superficie = 0;
                 return new Graphic({ geometry: geom, attributes: attrs });
               });
-              featureLayer.applyEdits({ deleteFeatures: [selectedGraphics[0]], addFeatures: adds }).then(res => handleServerResponse(res, "✂️ Corte guardado"));
+              featureLayer.applyEdits({ deleteFeatures: [selectedGraphics[0]], addFeatures: adds }).then(res => handleServerResponse(res, "✂️ Lote cortado"));
             }
           }
         }
@@ -239,7 +247,7 @@
       document.getElementById("saveAttrsBtn").addEventListener("click", () => {
         const update = featureForm.feature.clone();
         update.attributes = { ...update.attributes, ...featureForm.getValues() };
-        featureLayer.applyEdits({ updateFeatures: [update] }).then(res => handleServerResponse(res, "💾 Datos actualizados"));
+        featureLayer.applyEdits({ updateFeatures: [update] }).then(res => handleServerResponse(res, "💾 Datos guardados"));
       });
 
       document.getElementById("infoBtn").addEventListener("click", () => { if (selectedGraphics.length > 0) document.getElementById("attributesPanel").classList.add("open"); });
