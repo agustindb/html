@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Editor Pro - Combinación con Selección de Atributos</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css">
+  <script src="https://js.arcgis.com/4.26/"></script>
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: sans-serif; }
+    #viewDiv { width: 100%; height: 100vh; }
+    .action-bar { position: absolute; top: 20px; right: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 100; }
+    .action-bar button { padding: 10px 14px; background: white; border: 2px solid #0079c1; border-radius: 8px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    
+    #attributesPanel { 
+      position: absolute; top: 20px; left: -380px; width: 350px; max-height: 90vh; 
+      background: white; z-index: 101; transition: left 0.3s ease; padding: 20px; 
+      border-radius: 0 8px 8px 0; box-shadow: 4px 0 10px rgba(0,0,0,0.2); overflow-y: auto; 
+    }
+    #attributesPanel.open { left: 0; }
+    
+    .lote-item { 
+      border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; border-radius: 5px; background: #f9f9f9; 
+    }
+    .btn-select-attr { 
+      width: 100%; margin-top: 5px; padding: 8px; background: #0079c1; color: white; border: none; border-radius: 4px; cursor: pointer; 
+    }
+    .btn-save { width: 100%; margin-top: 15px; padding: 10px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    #toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); padding: 15px 25px; border-radius: 8px; color: white; opacity: 0; transition: opacity 0.4s; z-index: 1000; pointer-events: none; }
+    #toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="viewDiv"></div>
+  
+  <div id="attributesPanel">
+    <span style="float:right; cursor:pointer; color:red; font-size: 20px;" onclick="closePanel()">✖</span>
+    <h3 id="panelTitle">Edición de Atributos</h3>
+    <div id="selectorContainer" style="display:none;">
+      <p>⚠️ Selecciona de qué lote quieres heredar los atributos para la unión:</p>
+      <div id="lotesList"></div>
+    </div>
+    <div id="formSection">
+      <div id="formContainer"></div>
+      <button class="btn-save" id="saveAttrsBtn">💾 Guardar Cambios</button>
+    </div>
+  </div>
+
+  <div class="action-bar">
+    <button id="drawBtn">➕ Dibujar Lote</button>
+    <button id="unirBtn">🔗 Combinar (Shift+Clic)</button>
+    <button id="explotarBtn">💥 Explotar Multipart</button>
+    <button id="cortarBtn">✂️ Cortar (Doble Clic)</button>
+    <button id="infoBtn">📋 Ver/Editar Datos</button>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    require([
+      "esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer",
+      "esri/layers/GraphicsLayer", "esri/widgets/FeatureForm",
+      "esri/geometry/geometryEngine", "esri/Graphic", 
+      "esri/widgets/Sketch/SketchViewModel"
+    ], function(Map, MapView, FeatureLayer, GraphicsLayer, FeatureForm, geometryEngine, Graphic, SketchViewModel) {
+      
+      const featureLayer = new FeatureLayer({
+        url: "https://services.arcgis.com/K1N9k0GQ4uh0JzlT/arcgis/rest/services/Capa_test_edicion/FeatureServer/0",
+        outFields: ["*"],
+        editable: true
+      });
+
+      const map = new Map({ basemap: "streets-navigation-vector", layers: [featureLayer] });
+      const view = new MapView({ container: "viewDiv", map: map, center: [-58, -34], zoom: 6 });
+      const graphicsLayer = new GraphicsLayer();
+      map.add(graphicsLayer);
+
+      let selectedGraphics = [];
+      const featureForm = new FeatureForm({ container: "formContainer", layer: featureLayer });
+
+      function showToast(msg, color = "#28a745") {
+        const t = document.getElementById("toast");
+        t.innerText = msg; t.style.backgroundColor = color;
+        t.className = "show"; setTimeout(() => t.className = "", 3000);
+      }
+
+      window.closePanel = () => {
+        document.getElementById("attributesPanel").classList.remove("open");
+        document.getElementById("selectorContainer").style.display = "none";
+        document.getElementById("formSection").style.display = "block";
+      };
+
+      function handleServerResponse(res, successMsg) {
+        const error = res.addFeatureResults?.find(r => r.error) || res.deleteFeatureResults?.find(r => r.error);
+        if (error) { alert("🛑 ERROR DEL SERVIDOR:\n\n" + error.error.message); }
+        else {
+          showToast(successMsg);
+          featureLayer.refresh();
+          graphicsLayer.removeAll();
+          selectedGraphics = [];
+          closePanel();
+        }
+      }
+
+      // SELECCIÓN (SHIFT PARA MÚLTIPLE)
+      view.on("click", (event) => {
+        view.hitTest(event).then((res) => {
+          const hit = res.results.find(r => r.graphic.layer === featureLayer);
+          if (!event.native.shiftKey) { graphicsLayer.removeAll(); selectedGraphics = []; }
+          if (hit) {
+            selectedGraphics.push(hit.graphic);
+            const highlight = hit.graphic.clone();
+            highlight.symbol = { type: "simple-fill", color: [255, 255, 0, 0.4], outline: { color: "red", width: 2 }};
+            graphicsLayer.add(highlight);
+            featureForm.feature = hit.graphic;
+          }
+        });
+      });
+
+      // --- 1. COMBINAR CON ELECCIÓN ---
+      document.getElementById("unirBtn").addEventListener("click", () => {
+        if (selectedGraphics.length < 2) return showToast("Selecciona 2+ con Shift", "#dc3545");
+        
+        const panel = document.getElementById("attributesPanel");
+        const list = document.getElementById("lotesList");
+        list.innerHTML = "";
+        
+        document.getElementById("panelTitle").innerText = "Combinar Lotes";
+        document.getElementById("formSection").style.display = "none";
+        document.getElementById("selectorContainer").style.display = "block";
+        panel.classList.add("open");
+
+        selectedGraphics.forEach((g, index) => {
+          const div = document.createElement("div");
+          div.className = "lote-item";
+          div.innerHTML = `
+            <strong>ID:</strong> ${g.attributes.Id_ciampagna || 'Sin ID'}<br>
+            <strong>Superficie:</strong> ${g.attributes.Superficie || 0}<br>
+            <button class="btn-select-attr" data-index="${index}">Usar estos datos</button>
+          `;
+          list.appendChild(div);
+        });
+
+        // Evento para elegir atributos y ejecutar unión
+        list.onclick = (e) => {
+          if (e.target.classList.contains("btn-select-attr")) {
+            const idx = e.target.getAttribute("data-index");
+            ejecutarUnion(selectedGraphics[idx].attributes);
+          }
+        };
+      });
+
+      function ejecutarUnion(atributosElegidos) {
+        const union = geometryEngine.simplify(geometryEngine.union(selectedGraphics.map(g => g.geometry)));
+        const finalAttrs = { ...atributosElegidos };
+        delete finalAttrs.OBJECTID; // El servidor genera uno nuevo
+        
+        // Evitamos duplicado de clave primaria generando un sufijo temporal si fuera necesario
+        finalAttrs.Id_ciampagna = (finalAttrs.Id_ciampagna || "UNI") + "_U" + Math.floor(Math.random() * 1000);
+        if (finalAttrs.Superficie === null) finalAttrs.Superficie = 0;
+
+        featureLayer.applyEdits({
+          deleteFeatures: selectedGraphics,
+          addFeatures: [new Graphic({ geometry: union, attributes: finalAttrs })]
+        }).then(res => handleServerResponse(res, "🔗 Combinación realizada"));
+      }
+
+      // --- 2. DIBUJAR ---
+      const sketchVM = new SketchViewModel({ view, layer: graphicsLayer });
+      document.getElementById("drawBtn").addEventListener("click", () => sketchVM.create("polygon"));
+      sketchVM.on("create", (event) => {
+        if (event.state === "complete") {
+          const feat = new Graphic({
+            geometry: event.graphic.geometry,
+            attributes: { Id_ciampagna: "DIB_" + Math.floor(Math.random() * 10000), Superficie: 0 }
+          });
+          featureLayer.applyEdits({ addFeatures: [feat] }).then(res => handleServerResponse(res, "✅ Guardado"));
+        }
+      });
+
+      // --- 3. EXPLOTAR ---
+      document.getElementById("explotarBtn").addEventListener("click", () => {
+        if (selectedGraphics.length !== 1) return;
+        const g = selectedGraphics[0];
+        if (g.geometry.rings.length <= 1) return showToast("No es multipart", "#dc3545");
+        const adds = g.geometry.rings.map((ring, i) => {
+          const geom = g.geometry.clone(); geom.rings = [ring];
+          const attrs = { ...g.attributes }; delete attrs.OBJECTID;
+          attrs.Id_ciampagna = `EXP_${Math.floor(Math.random() * 1000)}_${i}`;
+          attrs.Superficie = 0;
+          return new Graphic({ geometry: geom, attributes: attrs });
+        });
+        featureLayer.applyEdits({ deleteFeatures: [g], addFeatures: adds }).then(res => handleServerResponse(res, "💥 Explotado"));
+      });
+
+      // BOTONES DE ATRIBUTOS Y CORTE
+      document.getElementById("saveAttrsBtn").addEventListener("click", () => {
+        const update = featureForm.feature.clone();
+        update.attributes = { ...update.attributes, ...featureForm.getValues() };
+        featureLayer.applyEdits({ updateFeatures: [update] }).then(res => handleServerResponse(res, "💾 Guardado"));
+      });
+
+      document.getElementById("infoBtn").addEventListener("click", () => {
+        if (selectedGraphics.length === 0) return showToast("Selecciona un lote", "#dc3545");
+        document.getElementById("panelTitle").innerText = "Edición de Atributos";
+        document.getElementById("selectorContainer").style.display = "none";
+        document.getElementById("formSection").style.display = "block";
+        document.getElementById("attributesPanel").classList.add("open");
+      });
+
+      document.getElementById("cortarBtn").addEventListener("click", () => {
+        if (selectedGraphics.length > 0) sketchVM.create("polyline");
+      });
+
+      sketchVM.on("create", (event) => {
+        if (event.state === "complete" && event.graphic.geometry.type === "polyline") {
+          const cut = geometryEngine.cut(geometryEngine.simplify(selectedGraphics[0].geometry), event.graphic.geometry);
+          if (cut.length > 1) {
+            const adds = cut.map((geom, i) => {
+              const attrs = { ...selectedGraphics[0].attributes }; delete attrs.OBJECTID;
+              attrs.Id_ciampagna = `CUT_${Math.floor(Math.random() * 1000)}_${i}`;
+              attrs.Superficie = 0;
+              return new Graphic({ geometry: geom, attributes: attrs });
+            });
+            featureLayer.applyEdits({ deleteFeatures: [selectedGraphics[0]], addFeatures: adds }).then(res => handleServerResponse(res, "✂️ Cortado"));
+          }
+        }
+      });
+    });
+  </script>
+</body>
+</html>
