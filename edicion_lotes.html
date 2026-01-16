@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Editor Lotes - Solución iFrame</title>
+  <title>Editor Pro - Integración Fluida</title>
   <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css">
   <script src="https://js.arcgis.com/4.26/"></script>
   <style>
@@ -32,19 +32,18 @@
       "esri/layers/GraphicsLayer", "esri/widgets/FeatureForm", "esri/geometry/geometryEngine", "esri/Graphic", "esri/widgets/Sketch/SketchViewModel"
     ], function(IdentityManager, OAuthInfo, Map, MapView, FeatureLayer, GraphicsLayer, FeatureForm, geometryEngine, Graphic, SketchViewModel) {
 
-      // 1. SOLUCIÓN AL ERROR DE X-FRAME-OPTIONS
+      // 1. CONFIGURACIÓN DE OAUTH CON POPUP PARA EVITAR BLOQUEOS DE IFRAME
       const info = new OAuthInfo({
-        appId: "YGJPRC9c0NNe4Qou", //
-        popup: true, // ¡CAMBIO CLAVE! Usar popup para que el login ocurra FUERA del iFrame
+        appId: "YGJPRC9c0NNe4Qou",
+        popup: true, 
         portalUrl: "https://www.arcgis.com",
         preserveUrlHash: true
       });
       IdentityManager.registerOAuthInfos([info]);
 
-      // Intento silencioso primero
+      // Intento silencioso para no pedir login si ya existe la sesión
       IdentityManager.checkSignInStatus(info.portalUrl + "/sharing").catch(() => {
-        // Si falla, pedimos login pero en una ventana nueva para no ser bloqueados
-        console.log("Sesión no detectada, esperando acción del usuario...");
+          console.log("Sesión no detectada, el usuario deberá permitir el acceso en el popup.");
       });
 
       const featureLayer = new FeatureLayer({
@@ -58,13 +57,13 @@
       const graphicsLayer = new GraphicsLayer();
       map.add(graphicsLayer);
 
-      // SNAPPING PARA PRECISIÓN
+      // SNAPPING PARA EDICIÓN PRECISA
       const sketchVM = new SketchViewModel({ 
         view, layer: graphicsLayer,
         snappingOptions: { enabled: true, featureSources: [{ layer: featureLayer, enabled: true }] }
       });
 
-      // ZOOM DESDE DASHBOARD
+      // LÓGICA DE ZOOM DINÁMICO DESDE DASHBOARD
       const urlParams = new URLSearchParams(window.location.search);
       const targetId = urlParams.get("id");
       if (targetId) {
@@ -81,7 +80,7 @@
       function handleServerResponse(res, successMsg) {
         const error = res.addFeatureResults?.find(r => r.error) || res.deleteFeatureResults?.find(r => r.error) || res.updateFeatureResults?.find(r => r.error);
         if (error) alert("Error:\n" + error.error.message);
-        else { showToast(successMsg); featureLayer.refresh(); graphicsLayer.removeAll(); closePanel(); }
+        else { showToast(successMsg); featureLayer.refresh(); graphicsLayer.removeAll(); selectedGraphics = []; closePanel(); }
       }
 
       view.on("click", (event) => {
@@ -102,6 +101,7 @@
       const featureForm = new FeatureForm({ container: "formContainer", layer: featureLayer });
 
       document.getElementById("drawBtn").onclick = () => sketchVM.create("polygon");
+      
       document.getElementById("unirBtn").onclick = () => {
         if (selectedGraphics.length < 2) return showToast("Shift+Clic en 2+ lotes", "#dc3545");
         const list = document.getElementById("lotesList"); list.innerHTML = "";
@@ -119,7 +119,7 @@
             const union = geometryEngine.simplify(geometryEngine.union(selectedGraphics.map(g => g.geometry)));
             delete attrs.OBJECTID;
             attrs.Id_ciampagna = (attrs.Id_ciampagna || "U") + "_UNI" + Math.floor(Math.random()*100);
-            featureLayer.applyEdits({ deleteFeatures: selectedGraphics, addFeatures: [new Graphic({ geometry: union, attributes: attrs })] }).then(res => handleServerResponse(res, "🔗 Unión lista"));
+            featureLayer.applyEdits({ deleteFeatures: selectedGraphics, addFeatures: [new Graphic({ geometry: union, attributes: attrs })] }).then(res => handleServerResponse(res, "🔗 Unión exitosa"));
           }
         };
       };
@@ -133,7 +133,7 @@
           attrs.Id_ciampagna = `EXP_${Math.floor(Math.random()*1000)}_${i}`;
           return new Graphic({ geometry: geom, attributes: attrs });
         });
-        featureLayer.applyEdits({ deleteFeatures: [g], addFeatures: adds }).then(res => handleServerResponse(res, "💥 Explotado"));
+        featureLayer.applyEdits({ deleteFeatures: [g], addFeatures: adds }).then(res => handleServerResponse(res, "💥 Polígono explotado"));
       };
 
       document.getElementById("cortarBtn").onclick = () => { if (selectedGraphics.length > 0) sketchVM.create("polyline"); };
@@ -148,7 +148,7 @@
             if (cut.length > 1) {
               const adds = cut.map((geom, i) => {
                 const attrs = { ...selectedGraphics[0].attributes }; delete attrs.OBJECTID;
-                attrs.Id_ciampagna = `CUT_${Math.floor(Math.random()*1000)}_${i}`;
+                attrs.Id_ciampagna = `CORTE_${Math.floor(Math.random()*1000)}_${i}`;
                 return new Graphic({ geometry: geom, attributes: attrs });
               });
               featureLayer.applyEdits({ deleteFeatures: [selectedGraphics[0]], addFeatures: adds }).then(res => handleServerResponse(res, "✂️ Cortado"));
@@ -160,7 +160,7 @@
       document.getElementById("saveAttrsBtn").onclick = () => {
         const update = featureForm.feature.clone();
         update.attributes = { ...update.attributes, ...featureForm.getValues() };
-        featureLayer.applyEdits({ updateFeatures: [update] }).then(res => handleServerResponse(res, "💾 Actualizado"));
+        featureLayer.applyEdits({ updateFeatures: [update] }).then(res => handleServerResponse(res, "💾 Guardado"));
       };
 
       document.getElementById("infoBtn").onclick = () => { if (selectedGraphics.length > 0) document.getElementById("attributesPanel").classList.add("open"); };
